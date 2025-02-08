@@ -5,7 +5,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 // TOKEN DE VERIFICAÇÃO DO WEBHOOK
-const VERIFY_TOKEN = "jotinha123";
+const VERIFY_TOKEN = "jotinha2025";
 
 // ✅ Endpoint para verificação do webhook no Meta
 app.get("/webhook", (req, res) => {
