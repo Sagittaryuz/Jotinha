@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 
 const ZAPI_INSTANCE = "3DC8C8CA9421B05CB51296155CBF9532";
-const ZAPI_TOKEN = "0328D662D161A6C45F3FC821";
+const ZAPI_TOKEN = "";
 const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
 
 // ✅ Endpoint Webhook para receber mensagens do WhatsApp
