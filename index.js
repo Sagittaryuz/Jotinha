@@ -2,39 +2,39 @@ const express = require("express");
 const axios = require("axios");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-const ZAPI_URL = "https://your-zapi-instance.com"; // Substitua pelo endpoint do Z-API
-const ZAPI_TOKEN = "your-api-key"; // Substitua pela API Key do Z-API
+const ZAPI_INSTANCE = "3DC8C8CA9421B05CB51296155CBF9532";
+const ZAPI_TOKEN = "0328D662D161A6C45F3FC821";
+const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
 
-// Função para enviar mensagem pelo Z-API
-async function sendMessage(phone, message) {
-    try {
-        const response = await axios.post(`${ZAPI_URL}/send-message`, {
-            phone: phone,
-            message: message
-        }, {
-            headers: { "Authorization": ZAPI_TOKEN }
-        });
-
-        console.log("Mensagem enviada:", response.data);
-    } catch (error) {
-        console.error("Erro ao enviar mensagem:", error.response ? error.response.data : error.message);
-    }
-}
-
-// Endpoint para receber mensagens do WhatsApp via Z-API
+// ✅ Endpoint Webhook para receber mensagens do WhatsApp
 app.post("/webhook", async (req, res) => {
-    const { phone, message } = req.body;
+    try {
+        const message = req.body;
+        console.log("Mensagem recebida:", message);
 
-    console.log(`Mensagem recebida de ${phone}: ${message}`);
+        if (message && message.sender && message.message) {
+            const sender = message.sender;
+            const reply = "Olá! Sou o Jotinha. Como posso te ajudar?";
 
-    // Responder automaticamente
-    await sendMessage(phone, "Olá! O Jotinha está online 🚀");
+            // 🔹 Enviar resposta automática pelo Z-API
+            await axios.post(ZAPI_URL, {
+                phone: sender,
+                message: reply
+            });
 
-    res.sendStatus(200);
+            console.log(`✅ Resposta enviada para ${sender}`);
+        }
+
+        res.sendStatus(200);
+    } catch (error) {
+        console.error("❌ Erro ao processar webhook:", error.message);
+        res.sendStatus(500);
+    }
 });
 
-// Inicia o servidor na porta definida
+// 🔹 Servidor rodando na porta definida
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
