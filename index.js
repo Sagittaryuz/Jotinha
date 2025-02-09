@@ -1,23 +1,40 @@
-const express = require('express');
+const express = require("express");
+const axios = require("axios");
+
 const app = express();
+app.use(express.json());
 
-app.use(express.json()); // Para processar JSON
+const PORT = process.env.PORT || 3000;
+const ZAPI_URL = "https://your-zapi-instance.com"; // Substitua pelo endpoint do Z-API
+const ZAPI_TOKEN = "your-api-key"; // Substitua pela API Key do Z-API
 
-// Rota do webhook para verificação
-app.get('/webhook', (req, res) => {
-    let mode = req.query['hub.mode'];
-    let token = req.query['hub.verify_token'];
-    let challenge = req.query['hub.challenge'];
+// Função para enviar mensagem pelo Z-API
+async function sendMessage(phone, message) {
+    try {
+        const response = await axios.post(`${ZAPI_URL}/send-message`, {
+            phone: phone,
+            message: message
+        }, {
+            headers: { "Authorization": ZAPI_TOKEN }
+        });
 
-    if (mode === 'subscribe' && token === "EAASJxWQIaQwBO5E5W56JjwZA3DZAJZBKdaPlla2huo1fyrDJp9HixiRV6InOWLehx8fm11gW2dewOZCkvAEYvvTahj3mptwyZBjrGksAj8w7ZCX1xDZBf5T9TkFOjZAldt2rhsRZCmKH6TyPBKMUbiOtE10vfdP7hUSzWWZBLTHEwtbE3uJZCEGDGDfSOSPdXmQH67neCq9vjzxX13DIuhLPHIYdFyUXmMZD") { 
-        console.log("WEBHOOK VERIFICADO!");
-        res.status(200).send(challenge); // Retorna o desafio corretamente
-    } else {
-        console.log("FALHA NA VERIFICAÇÃO DO WEBHOOK");
-        res.status(403).send('Falha na verificação');
+        console.log("Mensagem enviada:", response.data);
+    } catch (error) {
+        console.error("Erro ao enviar mensagem:", error.response ? error.response.data : error.message);
     }
+}
+
+// Endpoint para receber mensagens do WhatsApp via Z-API
+app.post("/webhook", async (req, res) => {
+    const { phone, message } = req.body;
+
+    console.log(`Mensagem recebida de ${phone}: ${message}`);
+
+    // Responder automaticamente
+    await sendMessage(phone, "Olá! O Jotinha está online 🚀");
+
+    res.sendStatus(200);
 });
 
-// Iniciar o servidor
-const PORT = process.env.PORT || 8080;
+// Inicia o servidor na porta definida
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
