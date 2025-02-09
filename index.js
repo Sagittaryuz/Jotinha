@@ -9,7 +9,7 @@ app.get('/webhook', (req, res) => {
     let token = req.query['hub.verify_token'];
     let challenge = req.query['hub.challenge'];
 
-    if (mode === 'subscribe' && token === "jotinha2025") { 
+    if (mode === 'subscribe' && token === "EAASJxWQIaQwBO5E5W56JjwZA3DZAJZBKdaPlla2huo1fyrDJp9HixiRV6InOWLehx8fm11gW2dewOZCkvAEYvvTahj3mptwyZBjrGksAj8w7ZCX1xDZBf5T9TkFOjZAldt2rhsRZCmKH6TyPBKMUbiOtE10vfdP7hUSzWWZBLTHEwtbE3uJZCEGDGDfSOSPdXmQH67neCq9vjzxX13DIuhLPHIYdFyUXmMZD") { 
         console.log("WEBHOOK VERIFICADO!");
         res.status(200).send(challenge); // Retorna o desafio corretamente
     } else {
