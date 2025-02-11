@@ -6,35 +6,82 @@ const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-const ZAPI_INSTANCE = "3DC8C8CA9421B05CB51296155CBF9532";
-const ZAPI_TOKEN = process.env.ZAPI_TOKEN; // ✅ CERTO
-const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
+// 🔹 Configuração da API da Meta
+const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
+const VERIFY_TOKEN = process.env.VERIFY_TOKEN;
+const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
 
-// ✅ Endpoint Webhook para receber mensagens do WhatsApp
+// 🔹 Rota para verificação do Webhook da Meta
+app.get("/webhook", (req, res) => {
+    const mode = req.query["hub.mode"];
+    const token = req.query["hub.verify_token"];
+    const challenge = req.query["hub.challenge"];
+
+    if (mode && token === VERIFY_TOKEN) {
+        console.log("✅ Webhook verificado com sucesso!");
+        res.status(200).send(challenge);
+    } else {
+        res.sendStatus(403);
+    }
+});
+
+// 🔹 Rota para receber mensagens do WhatsApp
 app.post("/webhook", async (req, res) => {
     try {
-        const message = req.body;
-        console.log("Mensagem recebida:", message);
+        const body = req.body;
+        console.log("📩 Mensagem recebida:", JSON.stringify(body, null, 2));
 
-        if (message && message.sender && message.message) {
-            const sender = message.sender;
-            const reply = "Olá! Sou o Jotinha. Como posso te ajudar?";
+        if (body.object === "whatsapp_business_account") {
+            const messages = body.entry[0].changes[0].value.messages;
+            if (messages) {
+                const message = messages[0];
+                const sender = message.from;
+                const text = message.text.body;
 
-            // 🔹 Enviar resposta automática pelo Z-API
-            await axios.post(ZAPI_URL, {
-                phone: sender,
-                message: reply
-            });
+                console.log(`📩 Mensagem de ${sender}: ${text}`);
 
-            console.log(`✅ Resposta enviada para ${sender}`);
+                // 🔹 Lógica para criar lembretes no Google Agenda
+                if (text.toLowerCase().includes("lembre")) {
+                    await sendWhatsAppMessage(sender, "✅ Entendido! Criando lembrete...");
+                    // Aqui você pode chamar a função que cria eventos no Google Agenda
+                } else {
+                    await sendWhatsAppMessage(sender, "🤖 Olá! Como posso te ajudar?");
+                }
+            }
         }
 
         res.sendStatus(200);
     } catch (error) {
-        console.error("❌ Erro ao processar webhook:", error.message);
+        console.error("❌ Erro no webhook:", error);
         res.sendStatus(500);
     }
 });
 
-// 🔹 Servidor rodando na porta definida
+// 🔹 Função para enviar mensagens pelo WhatsApp via API da Meta
+async function sendWhatsAppMessage(to, message) {
+    try {
+        const url = `https://graph.facebook.com/v17.0/${PHONE_NUMBER_ID}/messages`;
+        const response = await axios.post(
+            url,
+            {
+                messaging_product: "whatsapp",
+                to,
+                type: "text",
+                text: { body: message },
+            },
+            {
+                headers: {
+                    Authorization: `Bearer ${META_ACCESS_TOKEN}`,
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+
+        console.log(`📤 Mensagem enviada para ${to}:`, response.data);
+    } catch (error) {
+        console.error("❌ Erro ao enviar mensagem:", error.response ? error.response.data : error.message);
+    }
+}
+
+// 🔹 Servidor rodando
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
