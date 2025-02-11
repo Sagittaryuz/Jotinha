@@ -1,23 +1,17 @@
-const express = require("express");
-const axios = require("axios");
-
-const app = express();
-app.use(express.json());
-
-const PORT = process.env.PORT || 3000;
-const ZAPI_INSTANCE = process.env.ZAPI_INSTANCE;
-const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
-const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
-
 app.post("/webhook", async (req, res) => {
     try {
         const message = req.body;
         console.log("📩 Mensagem recebida:", message);
 
-        // Pegando a mensagem corretamente
         let text = "";
-        if (message.text && message.text.message) {
+
+        // Verificando onde o texto está dentro do JSON
+        if (message.text?.message) {
             text = message.text.message.toLowerCase();
+        } else if (message.body) {
+            text = message.body.toLowerCase();
+        } else if (message.content) {
+            text = message.content.toLowerCase();
         }
 
         if (!text) {
@@ -28,18 +22,18 @@ app.post("/webhook", async (req, res) => {
         let reply = "Não entendi. Você quer criar um lembrete?";
 
         if (text.includes("lembrete") || text.includes("agendar")) {
-            reply = "📅 Criando um lembrete para você no Google Agenda...";
-            // Aqui entra a lógica para vincular ao Google Agenda
+            reply = "📅 Criando um lembrete para você...";
         }
 
-        await axios.post(ZAPI_URL, { phone: message.phone, message: reply });
+        await axios.post(ZAPI_URL, {
+            phone: message.phone,
+            message: reply
+        });
 
         console.log(`✅ Resposta enviada para ${message.phone}: ${reply}`);
         res.sendStatus(200);
     } catch (error) {
-        console.error("❌ Erro ao processar mensagem:", error.message);
+        console.error("❌ Erro ao processar mensagem:", error.response?.data || error.message);
         res.sendStatus(500);
     }
 });
-
-app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
