@@ -1,55 +1,92 @@
 const express = require("express");
 const axios = require("axios");
+const { google } = require("googleapis");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 
-const PORT = process.env.PORT || 8080;
+// ✅ Configuração da API do Google Agenda
+const CLIENT_ID = "908522706004-3el3nh027is8butb27lan25anmf3sbat.apps.googleusercontent.com";
+const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const REDIRECT_URI = "https://developers.google.com/oauthplayground"; 
+const REFRESH_TOKEN = process.env.GOOGLE_REFRESH_TOKEN;
 
-// 📌 Configurações da API Oficial do WhatsApp (Meta)
-const META_ACCESS_TOKEN = process.env.META_ACCESS_TOKEN;
-const PHONE_NUMBER_ID = process.env.PHONE_NUMBER_ID;
-const WHATSAPP_API_URL = `https://graph.facebook.com/v18.0/${PHONE_NUMBER_ID}/messages`;
+// ✅ Inicializa a autenticação com Google OAuth2
+const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
+oauth2Client.setCredentials({ refresh_token: REFRESH_TOKEN });
 
-// 📌 Endpoint para Webhook do WhatsApp
+const calendar = google.calendar({ version: "v3", auth: oauth2Client });
+
+// ✅ Configuração do Z-API (Integração WhatsApp)
+const ZAPI_INSTANCE = "3DC8C8CA9421B05CB51296155CBF9532";
+const ZAPI_TOKEN = process.env.ZAPI_TOKEN; 
+const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
+
+// ✅ Lista de usuários autorizados para uso do Google Agenda
+const USERS_WHITELIST = ["+5564999219172", "+5564999814117", "+5562981877123"];
+
+// ✅ Webhook para receber mensagens do WhatsApp
 app.post("/webhook", async (req, res) => {
     try {
         const message = req.body;
         console.log("📩 Mensagem recebida:", message);
 
-        if (message && message.entry) {
-            const entry = message.entry[0];
-            const changes = entry.changes[0];
-            const value = changes.value;
-            const contact = value.contacts ? value.contacts[0] : null;
-            const sender = contact ? contact.wa_id : null;
-            const text = value.messages ? value.messages[0].text.body : null;
+        if (!message || !message.sender || !message.message) {
+            return res.sendStatus(400);
+        }
 
-            if (sender && text) {
-                console.log(`📞 Mensagem de ${sender}: ${text}`);
+        const sender = message.sender;
+        const text = message.message;
 
-                // Resposta automática 🚀
-                await axios.post(WHATSAPP_API_URL, {
-                    messaging_product: "whatsapp",
-                    to: sender,
-                    text: { body: "Olá! Sou o Jotinha. Como posso te ajudar?" }
-                }, {
-                    headers: {
-                        "Authorization": `Bearer ${META_ACCESS_TOKEN}`,
-                        "Content-Type": "application/json"
-                    }
-                });
+        // 🔹 Verifica se o usuário está na whitelist
+        if (!USERS_WHITELIST.includes(sender)) {
+            await sendMessage(sender, "⚠️ Você não tem permissão para acessar essa funcionalidade.");
+            return res.sendStatus(403);
+        }
 
-                console.log(`✅ Resposta enviada para ${sender}`);
-            }
+        // 🔹 Verifica se a conta Google já está vinculada
+        if (!REFRESH_TOKEN) {
+            await sendMessage(sender, "🔗 Você precisa vincular sua conta Google antes de criar lembretes. Acesse: https://developers.google.com/oauthplayground");
+            return res.sendStatus(200);
+        }
+
+        // 🔹 Identifica a intenção do usuário para criar lembretes
+        if (text.toLowerCase().includes("lembre")) {
+            const lembrete = text.replace(/lembre (de|me) /i, "");
+            const event = {
+                summary: lembrete,
+                start: { dateTime: new Date().toISOString(), timeZone: "America/Sao_Paulo" },
+                end: { dateTime: new Date(Date.now() + 3600000).toISOString(), timeZone: "America/Sao_Paulo" }
+            };
+
+            await calendar.events.insert({
+                calendarId: "primary",
+                resource: event
+            });
+
+            await sendMessage(sender, `✅ Lembrete criado com sucesso: *${lembrete}*`);
+        } else {
+            await sendMessage(sender, "🤖 Olá! Eu sou o Jotinha. Como posso te ajudar?");
         }
 
         res.sendStatus(200);
     } catch (error) {
-        console.error("❌ Erro ao processar webhook:", error.response ? error.response.data : error.message);
+        console.error("❌ Erro no webhook:", error.message);
         res.sendStatus(500);
     }
 });
 
-// 🚀 Inicializa o servidor
-app.listen(PORT, () => console.log(`🔥 Servidor rodando na porta ${PORT}`));
+// ✅ Função para enviar mensagens via WhatsApp (Z-API)
+async function sendMessage(phone, message) {
+    try {
+        await axios.post(ZAPI_URL, { phone, message });
+        console.log(`📤 Mensagem enviada para ${phone}`);
+    } catch (error) {
+        console.error("❌ Erro ao enviar mensagem:", error.message);
+    }
+}
+
+// ✅ Inicia o servidor na porta definida
+app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
