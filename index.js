@@ -7,7 +7,7 @@ const { google } = require('googleapis');
 const app = express();
 app.use(bodyParser.json());
 
-// Configurações (utilize variáveis de ambiente no Railway)
+// Configurações (utilize variáveis de ambiente configuradas no Railway)
 const PORT = process.env.PORT || 3000;
 const ZAPI_URL = process.env.ZAPI_URL || 'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
 const ZAPI_TOKEN = process.env.ZAPI_TOKEN || 'F924003aa7532484a9f9dbbd3932b2a03S';
@@ -23,7 +23,7 @@ const ALLOWED_NUMBERS = [
   '+55 62 8187-7123'
 ];
 
-// Armazenamento em memória para tokens do Google dos usuários (idealmente, utilize um BD)
+// Armazenamento em memória para tokens do Google dos usuários (idealmente, utilize um banco de dados)
 const userTokens = {};
 
 /**
@@ -36,6 +36,11 @@ function createOAuth2Client() {
     GOOGLE_REDIRECT_URI
   );
 }
+
+// Rota de saúde (ping) para auxiliar nos health checks do Railway
+app.get('/ping', (req, res) => {
+  res.send('pong');
+});
 
 /**
  * Endpoint de callback do OAuth2 do Google.
@@ -112,7 +117,7 @@ app.post('/webhook', async (req, res) => {
         await sendMessage(sender, `Você precisa conectar sua conta do Google Agenda. Por favor, clique neste link para conectar: ${authLink}`);
         return res.status(200).send("Solicitação de conexão enviada.");
       } else {
-        // Processa o comando de agendamento utilizando (simulação) o GPT-4 Mini
+        // Processa o comando de agendamento utilizando (simulação) o ChatGPT-4 Mini
         const schedulingDetails = await processSchedulingRequest(processedText);
         // Cria o evento no Google Calendar
         const oauth2Client = createOAuth2Client();
@@ -145,102 +150,4 @@ async function convertAudioToText(mediaUrl) {
 }
 
 /**
- * Função _placeholder_ para processar o comando de agendamento.
- * Aqui você pode integrar com o ChatGPT-4 Mini para extrair os detalhes do evento.
- */
-async function processSchedulingRequest(text) {
-  // Exemplo estático; substitua com a integração real
-  return {
-    title: "Evento Exemplo",
-    date: "2024-05-04",
-    time: "13:30",
-    notes: "Detalhes do evento"
-  };
-}
-
-/**
- * Função _placeholder_ para processar consultas de suporte com a persona Jotinha.
- */
-async function processSupportQuery(text) {
-  // Integre com sua instância do ChatGPT-4 Mini conforme necessário
-  return "Esta é uma resposta de suporte utilizando a persona Jotinha.";
-}
-
-/**
- * Adiciona um evento no Google Calendar.
- */
-async function addEventToGoogleCalendar(oauth2Client, eventDetails) {
-  const calendar = google.calendar({ version: 'v3', auth: oauth2Client });
-  const event = {
-    summary: eventDetails.title,
-    description: eventDetails.notes,
-    start: {
-      dateTime: new Date(`${eventDetails.date}T${eventDetails.time}:00`).toISOString(),
-      timeZone: 'America/Sao_Paulo'
-    },
-    end: {
-      // Aqui assume-se uma duração de 1 hora para o evento; ajuste se necessário
-      dateTime: new Date(new Date(`${eventDetails.date}T${eventDetails.time}:00`).getTime() + 60 * 60 * 1000).toISOString(),
-      timeZone: 'America/Sao_Paulo'
-    }
-  };
-
-  const response = await calendar.events.insert({
-    calendarId: 'primary',
-    resource: event
-  });
-  return response.data;
-}
-
-/**
- * Adiciona os detalhes do evento em uma planilha do Google Sheets.
- */
-async function addEventToSheet(oauth2Client, sender, eventDetails) {
-  // ID da planilha (extraído da URL compartilhada)
-  const spreadsheetId = '1-5hF3hYzEkFVhtdDhKUCY4PPLRHDF6c60yuJKu2k13U';
-  // Defina o intervalo onde os dados serão inseridos (ajuste o nome da sheet se necessário)
-  const range = 'Sheet1!A:F';
-  const values = [
-    [
-      sender,
-      eventDetails.title,
-      eventDetails.date,
-      eventDetails.time,
-      eventDetails.notes,
-      new Date().toLocaleString('pt-BR')
-    ]
-  ];
-  const resource = { values };
-  const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
-  const response = await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range,
-    valueInputOption: 'USER_ENTERED',
-    resource
-  });
-  return response.data;
-}
-
-/**
- * Envia uma mensagem para o usuário via Z-API.
- */
-async function sendMessage(recipient, text) {
-  const payload = {
-    phone: recipient,
-    message: text
-  };
-  try {
-    await axios.post(ZAPI_URL, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${ZAPI_TOKEN}`
-      }
-    });
-  } catch (error) {
-    console.error(`Erro ao enviar mensagem para ${recipient}:`, error.response ? error.response.data : error);
-  }
-}
-
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
+ * Função _placeholder_ para processar o 
