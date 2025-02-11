@@ -4,12 +4,18 @@ const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(express.json());
-
-// 🔹 Suas credenciais
-const ZAPI_INSTANCE = "3DC8C8CA9421B05CB51296155CBF9532"; // 🔹 ID da instância da Z-API
-const ZAPI_TOKEN = "1D8DE54DAF4B72BC51CA8548"; // 🔹 Token da Z-API
+// 🔹 Variáveis de ambiente do Railway
+const ZAPI_INSTANCE = process.env.ZAPI_INSTANCE;
+const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
 const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
+
+// 🔹 Verifica se as variáveis foram configuradas no Railway
+if (!ZAPI_INSTANCE || !ZAPI_TOKEN) {
+    console.error("❌ ERRO: Variáveis de ambiente não configuradas no Railway.");
+    process.exit(1);
+}
+
+app.use(express.json());
 
 // ✅ Webhook para receber mensagens do WhatsApp
 app.post("/webhook", async (req, res) => {
@@ -17,7 +23,7 @@ app.post("/webhook", async (req, res) => {
         const message = req.body;
         console.log("📩 Mensagem recebida:", message);
 
-        // 🔹 Validar mensagem recebida
+        // 🔹 Verifica se a mensagem tem remetente e texto
         const sender = message?.phone?.trim();
         const text = message?.text?.message?.trim();
 
@@ -28,12 +34,12 @@ app.post("/webhook", async (req, res) => {
 
         let reply = "Olá! Sou o Jotinha. Como posso te ajudar?";
 
-        // 🔹 Responder sobre lembretes
+        // 🔹 Se a mensagem mencionar "lembrete", responde de forma personalizada
         if (text.toLowerCase().includes("lembrete") || text.toLowerCase().includes("agendar")) {
-            reply = "📅 Você deseja criar um lembrete? Por favor, informe a data e hora!";
+            reply = "📅 Você deseja criar um lembrete? Informe a data e hora!";
         }
 
-        // 🔹 Enviar resposta pelo Z-API
+        // 🔹 Enviar resposta automática pela Z-API
         await axios.post(ZAPI_URL, {
             phone: sender,
             message: reply
@@ -47,5 +53,5 @@ app.post("/webhook", async (req, res) => {
     }
 });
 
-// 🔹 Servidor rodando
+// 🔹 Inicia o servidor
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
