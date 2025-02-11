@@ -1,4 +1,1 @@
-"scripts": {
-  "start": "node index.js",
-  "prestart": "sleep 5"
-}
+
