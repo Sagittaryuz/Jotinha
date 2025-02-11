@@ -9,16 +9,12 @@ app.use(bodyParser.json());
 
 // Configurações obtidas via variáveis de ambiente (Railway)
 const PORT = process.env.PORT || 3000;
-const ZAPI_URL =
-  process.env.ZAPI_URL ||
-  'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
-const ZAPI_TOKEN = process.env.ZAPI_TOKEN || 'F924003aa7532484a9f9dbbd3932b2a03S';
+const ZAPI_URL = process.env.ZAPI_URL || 'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
+const ZAPI_TOKEN = process.env.ZAPI_TOKEN || '1D8DE54DAF4B72BC51CA8548';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID; // Definido no Railway
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET; // Definido no Railway
-const GOOGLE_REDIRECT_URI =
-  process.env.GOOGLE_REDIRECT_URI ||
-  'https://jotinha-production.up.railway.app/auth/google/callback';
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://jotinha-production.up.railway.app/auth/google/callback';
 
 // Números autorizados para agendamento de lembretes
 const ALLOWED_NUMBERS = [
@@ -112,9 +108,7 @@ app.post('/webhook', async (req, res) => {
     if (ALLOWED_NUMBERS.includes(sender)) {
       // Verifica se o usuário já conectou sua conta Google
       if (!userTokens[sender]) {
-        const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(
-          sender
-        )}`;
+        const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
         await sendMessage(
           sender,
           `Você precisa conectar sua conta do Google Agenda. Por favor, clique neste link para conectar: ${authLink}`
@@ -234,12 +228,13 @@ async function sendMessage(recipient, text) {
     message: text
   };
   try {
-    await axios.post(ZAPI_URL, payload, {
+    const response = await axios.post(ZAPI_URL, payload, {
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${ZAPI_TOKEN}`
       }
     });
+    console.log(`Mensagem enviada para ${recipient}. Resposta da API:`, response.data);
   } catch (error) {
     console.error(
       `Erro ao enviar mensagem para ${recipient}:`,
