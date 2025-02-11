@@ -8,7 +8,7 @@ const app = express();
 app.use(bodyParser.json());
 
 // Configurações obtidas via variáveis de ambiente (Railway)
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 const ZAPI_URL = process.env.ZAPI_URL || 'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
 const ZAPI_TOKEN = process.env.ZAPI_TOKEN || '1D8DE54DAF4B72BC51CA8548';
 
