@@ -5,12 +5,36 @@ const app = express();
 app.use(express.json());
 
 const PORT = process.env.PORT || 3000;
+const ZAPI_INSTANCE = process.env.ZAPI_INSTANCE;
+const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
+const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
 
 app.post("/webhook", async (req, res) => {
     try {
         const message = req.body;
         console.log("📩 Mensagem recebida:", message);
 
+        // Pegando a mensagem corretamente
+        let text = "";
+        if (message.text && message.text.message) {
+            text = message.text.message.toLowerCase();
+        }
+
+        if (!text) {
+            console.log("❌ Nenhum texto identificado na mensagem.");
+            return res.sendStatus(200);
+        }
+
+        let reply = "Não entendi. Você quer criar um lembrete?";
+
+        if (text.includes("lembrete") || text.includes("agendar")) {
+            reply = "📅 Criando um lembrete para você no Google Agenda...";
+            // Aqui entra a lógica para vincular ao Google Agenda
+        }
+
+        await axios.post(ZAPI_URL, { phone: message.phone, message: reply });
+
+        console.log(`✅ Resposta enviada para ${message.phone}: ${reply}`);
         res.sendStatus(200);
     } catch (error) {
         console.error("❌ Erro ao processar mensagem:", error.message);
