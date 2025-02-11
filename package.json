@@ -1,12 +1,13 @@
 {
   "name": "jotinha",
   "version": "1.0.0",
+  "description": "Bot Jotinha para integração com WhatsApp e Google Agenda",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "^4.18.2",
-    "axios": "^1.5.1"
+    "axios": "^1.3.2"
   }
 }
