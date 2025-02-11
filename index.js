@@ -37,6 +37,11 @@ function createOAuth2Client() {
   );
 }
 
+// Rota raiz para confirmar que o serviço está ativo
+app.get('/', (req, res) => {
+  res.send('Jotinha Bot is running');
+});
+
 // Rota de health check (ping) para auxiliar no monitoramento do Railway
 app.get('/ping', (req, res) => {
   res.send('pong');
@@ -246,4 +251,15 @@ async function sendMessage(recipient, text) {
 // O servidor escuta em todas as interfaces para compatibilidade com o Railway
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
+});
+
+// Handlers para sinais de encerramento, para logar e encerrar graciosamente
+process.on('SIGTERM', () => {
+  console.log('SIGTERM recebido. Encerrando o servidor.');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT recebido. Encerrando o servidor.');
+  process.exit(0);
 });
