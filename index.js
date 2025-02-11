@@ -2,72 +2,50 @@ const express = require("express");
 const axios = require("axios");
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
 app.use(express.json());
 
-const PORT = process.env.PORT || 3000;
-const ZAPI_INSTANCE = process.env.ZAPI_INSTANCE;
-const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
+// 🔹 Suas credenciais
+const ZAPI_INSTANCE = "3DC8C8CA9421B05CB51296155CBF9532"; // 🔹 ID da instância da Z-API
+const ZAPI_TOKEN = "1D8DE54DAF4B72BC51CA8548"; // 🔹 Token da Z-API
 const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
 
+// ✅ Webhook para receber mensagens do WhatsApp
 app.post("/webhook", async (req, res) => {
     try {
         const message = req.body;
         console.log("📩 Mensagem recebida:", message);
 
-        let text = "";
+        // 🔹 Validar mensagem recebida
+        const sender = message?.phone?.trim();
+        const text = message?.text?.message?.trim();
 
-        // 🔹 Extraindo texto corretamente
-        if (message.text && message.text.message) {
-            text = message.text.message.toLowerCase();
-        } else if (message.body) {
-            text = message.body.toLowerCase();
-        } else if (message.content) {
-            text = message.content.toLowerCase();
+        if (!sender || !text) {
+            console.warn("⚠️ Mensagem inválida recebida.");
+            return res.status(400).send({ error: "Mensagem inválida." });
         }
 
-        // 🔹 Se ainda assim não encontrar texto, definir um valor padrão
-        if (!text || text.trim() === "") {
-            console.log("❌ Nenhum texto identificado.");
-            text = "Mensagem vazia";
+        let reply = "Olá! Sou o Jotinha. Como posso te ajudar?";
+
+        // 🔹 Responder sobre lembretes
+        if (text.toLowerCase().includes("lembrete") || text.toLowerCase().includes("agendar")) {
+            reply = "📅 Você deseja criar um lembrete? Por favor, informe a data e hora!";
         }
 
-        // 🔹 Garantindo que phone não é nulo
-        const phone = message.phone ? message.phone.trim() : null;
-
-        if (!phone || phone.trim() === "") {
-            console.error("❌ Erro: O campo 'phone' está ausente ou inválido.");
-            return res.status(400).send({ error: "Número de telefone inválido" });
-        }
-
-        let reply = "Não entendi. Você quer criar um lembrete?";
-
-        if (text.includes("lembrete") || text.includes("agendar")) {
-            reply = "📅 Criando um lembrete para você...";
-            // Aqui pode entrar a lógica para conectar com o Google Agenda
-        }
-
-        // 🔹 Garantindo que a mensagem nunca seja nula
-        if (!reply || reply.trim() === "") {
-            console.error("❌ Erro: Mensagem de resposta está vazia.");
-            return res.status(400).send({ error: "Mensagem inválida" });
-        }
-
-        // 🔹 Enviando resposta para a Z-API
+        // 🔹 Enviar resposta pelo Z-API
         await axios.post(ZAPI_URL, {
-            phone: phone,
+            phone: sender,
             message: reply
-        }).then(response => {
-            console.log(`✅ Resposta enviada para ${phone}: ${reply}`);
-        }).catch(error => {
-            console.error("❌ Erro ao enviar mensagem para a Z-API:", error.response?.data || error.message);
         });
 
+        console.log(`✅ Resposta enviada para ${sender}: "${reply}"`);
         res.sendStatus(200);
     } catch (error) {
-        console.error("❌ Erro ao processar mensagem:", error.response?.data || error.message);
+        console.error("❌ Erro ao processar webhook:", error.response?.data || error.message);
         res.sendStatus(500);
     }
 });
 
-// 🔹 Iniciar o servidor
+// 🔹 Servidor rodando
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
