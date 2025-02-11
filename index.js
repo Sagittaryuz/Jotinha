@@ -1,21 +1,23 @@
+const express = require("express");
+const axios = require("axios");
+
+const app = express();
+app.use(express.json());
+
+const PORT = process.env.PORT || 3000;
+const ZAPI_INSTANCE = process.env.ZAPI_INSTANCE;
+const ZAPI_TOKEN = process.env.ZAPI_TOKEN;
+const ZAPI_URL = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}/send-text`;
+
 app.post("/webhook", async (req, res) => {
     try {
         const message = req.body;
         console.log("📩 Mensagem recebida:", message);
 
-        let text = "";
-
-        // Verificando onde o texto está dentro do JSON
-        if (message.text?.message) {
-            text = message.text.message.toLowerCase();
-        } else if (message.body) {
-            text = message.body.toLowerCase();
-        } else if (message.content) {
-            text = message.content.toLowerCase();
-        }
+        let text = message.text?.message?.toLowerCase() || "";
 
         if (!text) {
-            console.log("❌ Nenhum texto identificado na mensagem.");
+            console.log("❌ Nenhum texto identificado.");
             return res.sendStatus(200);
         }
 
@@ -37,3 +39,6 @@ app.post("/webhook", async (req, res) => {
         res.sendStatus(500);
     }
 });
+
+// 🔹 Iniciar o servidor corretamente
+app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
