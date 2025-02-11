@@ -16,7 +16,7 @@ app.post("/webhook", async (req, res) => {
 
         let text = "";
 
-        // 🔹 Extraindo texto corretamente, independente da estrutura da mensagem
+        // 🔹 Extraindo texto corretamente
         if (message.text && message.text.message) {
             text = message.text.message.toLowerCase();
         } else if (message.body) {
@@ -34,9 +34,9 @@ app.post("/webhook", async (req, res) => {
         // 🔹 Garantindo que phone não é nulo
         const phone = message.phone ? message.phone.trim() : null;
 
-        if (!phone) {
+        if (!phone || phone.trim() === "") {
             console.error("❌ Erro: O campo 'phone' está ausente ou inválido.");
-            return res.sendStatus(400);
+            return res.status(400).send({ error: "Número de telefone inválido" });
         }
 
         let reply = "Não entendi. Você quer criar um lembrete?";
@@ -46,15 +46,22 @@ app.post("/webhook", async (req, res) => {
             // Aqui pode entrar a lógica para conectar com o Google Agenda
         }
 
+        // 🔹 Garantindo que a mensagem nunca seja nula
+        if (!reply || reply.trim() === "") {
+            console.error("❌ Erro: Mensagem de resposta está vazia.");
+            return res.status(400).send({ error: "Mensagem inválida" });
+        }
+
         // 🔹 Enviando resposta para a Z-API
         await axios.post(ZAPI_URL, {
             phone: phone,
             message: reply
+        }).then(response => {
+            console.log(`✅ Resposta enviada para ${phone}: ${reply}`);
         }).catch(error => {
             console.error("❌ Erro ao enviar mensagem para a Z-API:", error.response?.data || error.message);
         });
 
-        console.log(`✅ Resposta enviada para ${phone}: ${reply}`);
         res.sendStatus(200);
     } catch (error) {
         console.error("❌ Erro ao processar mensagem:", error.response?.data || error.message);
