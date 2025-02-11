@@ -14,33 +14,47 @@ app.post("/webhook", async (req, res) => {
         const message = req.body;
         console.log("📩 Mensagem recebida:", message);
 
-        let text = message.text?.message?.toLowerCase() || "";
+        let text = "";
 
-        if (!text) {
+        // 🔹 Extraindo texto corretamente, independente da estrutura da mensagem
+        if (message.text && message.text.message) {
+            text = message.text.message.toLowerCase();
+        } else if (message.body) {
+            text = message.body.toLowerCase();
+        } else if (message.content) {
+            text = message.content.toLowerCase();
+        }
+
+        // 🔹 Se ainda assim não encontrar texto, definir um valor padrão
+        if (!text || text.trim() === "") {
             console.log("❌ Nenhum texto identificado.");
-            return res.sendStatus(200);
+            text = "Mensagem vazia";
+        }
+
+        // 🔹 Garantindo que phone não é nulo
+        const phone = message.phone ? message.phone.trim() : null;
+
+        if (!phone) {
+            console.error("❌ Erro: O campo 'phone' está ausente ou inválido.");
+            return res.sendStatus(400);
         }
 
         let reply = "Não entendi. Você quer criar um lembrete?";
 
         if (text.includes("lembrete") || text.includes("agendar")) {
             reply = "📅 Criando um lembrete para você...";
+            // Aqui pode entrar a lógica para conectar com o Google Agenda
         }
 
-        if (!message.phone || !reply) {
-    console.error("❌ Erro: Dados inválidos, não enviando mensagem.", { phone: message.phone, message: reply });
-    return res.sendStatus(400);
-}
+        // 🔹 Enviando resposta para a Z-API
+        await axios.post(ZAPI_URL, {
+            phone: phone,
+            message: reply
+        }).catch(error => {
+            console.error("❌ Erro ao enviar mensagem para a Z-API:", error.response?.data || error.message);
+        });
 
-await axios.post(ZAPI_URL, {
-    phone: message.phone.trim(),  // Removendo espaços extras
-    message: reply
-}).catch(error => {
-    console.error("❌ Erro ao enviar mensagem para a Z-API:", error.response?.data || error.message);
-});
-
-
-        console.log(`✅ Resposta enviada para ${message.phone}: ${reply}`);
+        console.log(`✅ Resposta enviada para ${phone}: ${reply}`);
         res.sendStatus(200);
     } catch (error) {
         console.error("❌ Erro ao processar mensagem:", error.response?.data || error.message);
@@ -48,5 +62,5 @@ await axios.post(ZAPI_URL, {
     }
 });
 
-// 🔹 Iniciar o servidor corretamente
+// 🔹 Iniciar o servidor
 app.listen(PORT, () => console.log(`🚀 Servidor rodando na porta ${PORT}`));
