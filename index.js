@@ -27,10 +27,18 @@ app.post("/webhook", async (req, res) => {
             reply = "📅 Criando um lembrete para você...";
         }
 
-        await axios.post(ZAPI_URL, {
-            phone: message.phone,
-            message: reply
-        });
+        if (!message.phone || !reply) {
+    console.error("❌ Erro: Dados inválidos, não enviando mensagem.", { phone: message.phone, message: reply });
+    return res.sendStatus(400);
+}
+
+await axios.post(ZAPI_URL, {
+    phone: message.phone.trim(),  // Removendo espaços extras
+    message: reply
+}).catch(error => {
+    console.error("❌ Erro ao enviar mensagem para a Z-API:", error.response?.data || error.message);
+});
+
 
         console.log(`✅ Resposta enviada para ${message.phone}: ${reply}`);
         res.sendStatus(200);
