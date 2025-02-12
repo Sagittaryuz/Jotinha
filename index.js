@@ -24,10 +24,10 @@ const GOOGLE_REDIRECT_URI =
 const CHATVOLT_AGENT_ID = process.env.CHATVOLT_AGENT_ID; // Ex.: "cm4ig6q8j01tvo0rtuow23axo"
 const CHATVOLT_AUTH_TOKEN = process.env.CHATVOLT_AUTH_TOKEN; // Seu token de autenticação
 
-// (Opcional) Lista de números autorizados para agendamento – ajuste ou remova se desejar permitir para todos
+// Lista de números autorizados para agendamento – atualizado conforme solicitado
 const ALLOWED_NUMBERS = [
   '+55 64 99921-9172',
-  '+55 64 9981-411',
+  '+55 64 99981-4117',
   '+55 62 8187-7123'
 ];
 
@@ -45,8 +45,8 @@ function removeAccents(str) {
 }
 
 /**
- * Verifica se o texto recebido contém palavras-chave que indiquem um comando de lembrete.
- * Essa função é um fallback, pois a principal interpretação será delegada ao Chatvolt.
+ * (Fallback) Verifica se o texto recebido contém palavras-chave que indiquem um comando de lembrete.
+ * Essa função é usada apenas se a interpretação via Chatvolt não retornar uma resposta estruturada.
  */
 function isReminderCommandFallback(text) {
   if (!text) return false;
@@ -180,7 +180,7 @@ app.post('/webhook', async (req, res) => {
     
     console.log(`Processed text from ${sender}: ${processedText}`);
 
-    // Se há um agendamento pendente para este remetente, trate a confirmação.
+    // Se há um agendamento pendente para este remetente, trata a confirmação.
     if (pendingScheduling[sender]) {
       if (processedText.trim().toLowerCase() === 'sim') {
         const schedulingDetails = pendingScheduling[sender];
@@ -208,13 +208,17 @@ app.post('/webhook', async (req, res) => {
     const agentResponse = await queryChatvoltAgent(processedText, sender);
     console.log("Resposta do agente Chatvolt:", agentResponse);
 
-    let parsedAnswer = null;
-    try {
-      parsedAnswer = JSON.parse(agentResponse.answer);
-    } catch (e) {
-      console.log("Resposta do Chatvolt não estruturada; usando fallback.");
+    let parsedAnswer = agentResponse && agentResponse.answer;
+    if (parsedAnswer && typeof parsedAnswer === "string") {
+      try {
+        parsedAnswer = JSON.parse(parsedAnswer);
+      } catch (e) {
+        console.log("Erro ao parsear a resposta do Chatvolt, usando fallback.");
+        parsedAnswer = null;
+      }
     }
-
+    
+    // Se a resposta do agente indicar um lembrete, trata o fluxo de agendamento
     if (parsedAnswer && parsedAnswer.isReminder) {
       if (!userTokens[sender]) {
         const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
@@ -228,10 +232,26 @@ app.post('/webhook', async (req, res) => {
       );
       return res.status(200).send('Confirmação solicitada.');
     } else {
-      // Se a resposta do agente não for interpretada como um lembrete, utiliza o fluxo de suporte.
-      const responseText = await processSupportQuery(processedText);
-      await sendMessage(sender, responseText);
-      return res.status(200).send('OK');
+      // Se a resposta do agente não indicar um lembrete, usa o fallback para detectar comando de lembrete
+      if (isReminderCommandFallback(processedText)) {
+        if (!userTokens[sender]) {
+          const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
+          await sendMessage(sender, `Você precisa conectar sua conta do Google Agenda para gerenciar lembretes. Por favor, clique neste link para conectar: ${authLink}`);
+          return res.status(200).send('Solicitação de conexão enviada.');
+        }
+        const fallbackDetails = await processSchedulingRequest(processedText);
+        pendingScheduling[sender] = fallbackDetails;
+        await sendMessage(
+          sender,
+          `Você deseja agendar o evento "${fallbackDetails.title}" para ${fallbackDetails.date} às ${fallbackDetails.time} no seu Google Agenda? Responda SIM para confirmar ou qualquer outra resposta para cancelar.`
+        );
+        return res.status(200).send('Confirmação solicitada.');
+      } else {
+        // Fluxo de suporte se o comando não for reconhecido como lembrete.
+        const responseText = await processSupportQuery(processedText);
+        await sendMessage(sender, responseText);
+        return res.status(200).send('OK');
+      }
     }
   } catch (error) {
     console.error('Erro ao processar a mensagem:', error);
@@ -318,56 +338,4 @@ async function addEventToSheet(oauth2Client, sender, eventDetails) {
       new Date().toLocaleString('pt-BR')
     ]
   ];
-  const resource = { values };
-  const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
-  const response = await sheets.spreadsheets.values.append({
-    spreadsheetId,
-    range,
-    valueInputOption: 'USER_ENTERED',
-    resource
-  });
-  return response.data;
-}
-
-/**
- * Envia uma mensagem ao usuário via Z-API.
- */
-async function sendMessage(recipient, text) {
-  if (!text) {
-    console.error(`Texto da mensagem é nulo ou vazio para ${recipient}`);
-    return;
-  }
-  const payload = {
-    phone: recipient,
-    message: text
-  };
-  try {
-    const response = await axios.post(ZAPI_URL, payload, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${ZAPI_TOKEN}`
-      }
-    });
-    console.log(`Mensagem enviada para ${recipient}. Resposta da API:`, response.data);
-  } catch (error) {
-    console.error(
-      `Erro ao enviar mensagem para ${recipient}:`,
-      error.response ? error.response.data : error
-    );
-  }
-}
-
-// O servidor escuta em todas as interfaces para compatibilidade com o Railway
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-});
-
-// Handlers para sinais de encerramento (SIGTERM e SIGINT)
-process.on('SIGTERM', () => {
-  console.log('SIGTERM recebido. Encerrando o servidor.');
-  process.exit(0);
-});
-process.on('SIGINT', () => {
-  console.log('SIGINT recebido. Encerrando o servidor.');
-  process.exit(0);
-});
+  const resource =
