@@ -31,7 +31,7 @@ const ALLOWED_NUMBERS = [
   '+55 62 8187-7123'
 ];
 
-// Armazenamento em memória para tokens dos usuários (para produção, utilize um banco de dados)
+// Armazenamento em memória para tokens dos usuários (para produção, utilize um BD)
 const userTokens = {};
 
 // Armazena os agendamentos pendentes (fluxo de confirmação)
@@ -46,7 +46,6 @@ function removeAccents(str) {
 
 /**
  * (Fallback) Verifica se o texto recebido contém palavras-chave que indiquem um comando de lembrete.
- * Essa função é usada apenas se a interpretação via Chatvolt não retornar uma resposta estruturada.
  */
 function isReminderCommandFallback(text) {
   if (!text) return false;
@@ -109,7 +108,6 @@ app.get('/ping', (req, res) => {
 
 /**
  * Endpoint de callback do OAuth2 do Google.
- * Recebe "code" e "state" (onde state contém o número do usuário).
  */
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code;
@@ -132,7 +130,6 @@ app.get('/auth/google/callback', async (req, res) => {
 
 /**
  * Endpoint para iniciar o fluxo OAuth2 do Google.
- * Exemplo: /auth/google?phone=+5511999999999
  */
 app.get('/auth/google', (req, res) => {
   const phone = req.query.phone;
@@ -208,17 +205,23 @@ app.post('/webhook', async (req, res) => {
     const agentResponse = await queryChatvoltAgent(processedText, sender);
     console.log("Resposta do agente Chatvolt:", agentResponse);
 
-    let parsedAnswer = agentResponse && agentResponse.answer;
-    if (parsedAnswer && typeof parsedAnswer === "string") {
-      try {
-        parsedAnswer = JSON.parse(parsedAnswer);
-      } catch (e) {
-        console.log("Erro ao parsear a resposta do Chatvolt, usando fallback.");
-        parsedAnswer = null;
+    // Tenta interpretar a resposta como objeto JSON
+    let parsedAnswer = null;
+    if (agentResponse && agentResponse.answer) {
+      if (typeof agentResponse.answer === 'object') {
+        parsedAnswer = agentResponse.answer;
+      } else if (typeof agentResponse.answer === 'string' &&
+                 agentResponse.answer.trim().startsWith('{') &&
+                 agentResponse.answer.trim().endsWith('}')) {
+        try {
+          parsedAnswer = JSON.parse(agentResponse.answer);
+        } catch (e) {
+          console.log("Erro ao parsear a resposta do Chatvolt:", e);
+        }
       }
     }
     
-    // Se a resposta do agente indicar um lembrete, trata o fluxo de agendamento
+    // Se a resposta do agente indicar um lembrete, trata o fluxo de agendamento.
     if (parsedAnswer && parsedAnswer.isReminder) {
       if (!userTokens[sender]) {
         const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
@@ -232,7 +235,7 @@ app.post('/webhook', async (req, res) => {
       );
       return res.status(200).send('Confirmação solicitada.');
     } else {
-      // Se a resposta do agente não indicar um lembrete, usa o fallback para detectar comando de lembrete
+      // Se a resposta do agente não indicar um lembrete, usa o fallback para detectar comando de lembrete.
       if (isReminderCommandFallback(processedText)) {
         if (!userTokens[sender]) {
           const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
@@ -269,7 +272,6 @@ async function convertAudioToText(mediaUrl) {
 
 /**
  * Função placeholder para processar o comando de agendamento.
- * Idealmente, essa função não será utilizada se o agente do Chatvolt retornar a estrutura correta.
  * Exemplo de resposta esperada:
  * {
  *   "isReminder": true,
@@ -338,4 +340,56 @@ async function addEventToSheet(oauth2Client, sender, eventDetails) {
       new Date().toLocaleString('pt-BR')
     ]
   ];
-  const resource =
+  const resource = { values };
+  const sheets = google.sheets({ version: 'v4', auth: oauth2Client });
+  const response = await sheets.spreadsheets.values.append({
+    spreadsheetId,
+    range,
+    valueInputOption: 'USER_ENTERED',
+    resource
+  });
+  return response.data;
+}
+
+/**
+ * Envia uma mensagem ao usuário via Z-API.
+ */
+async function sendMessage(recipient, text) {
+  if (!text) {
+    console.error(`Texto da mensagem é nulo ou vazio para ${recipient}`);
+    return;
+  }
+  const payload = {
+    phone: recipient,
+    message: text
+  };
+  try {
+    const response = await axios.post(ZAPI_URL, payload, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${ZAPI_TOKEN}`
+      }
+    });
+    console.log(`Mensagem enviada para ${recipient}. Resposta da API:`, response.data);
+  } catch (error) {
+    console.error(
+      `Erro ao enviar mensagem para ${recipient}:`,
+      error.response ? error.response.data : error
+    );
+  }
+}
+
+// O servidor escuta em todas as interfaces para compatibilidade com o Railway
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+});
+
+// Handlers para sinais de encerramento (SIGTERM e SIGINT)
+process.on('SIGTERM', () => {
+  console.log('SIGTERM recebido. Encerrando o servidor.');
+  process.exit(0);
+});
+process.on('SIGINT', () => {
+  console.log('SIGINT recebido. Encerrando o servidor.');
+  process.exit(0);
+});
