@@ -20,6 +20,10 @@ const GOOGLE_REDIRECT_URI =
   process.env.GOOGLE_REDIRECT_URI ||
   'https://jotinha-production.up.railway.app/auth/google/callback';
 
+// Configurações do Chatvolt
+const CHATVOLT_AGENT_ID = process.env.CHATVOLT_AGENT_ID; // Ex.: "cm4ig6q8j01tvo0rtuow23axo"
+const CHATVOLT_AUTH_TOKEN = process.env.CHATVOLT_AUTH_TOKEN; // Seu token de autenticação
+
 // (Opcional) Lista de números autorizados para agendamento – ajuste ou remova se desejar permitir para todos
 const ALLOWED_NUMBERS = [
   '+55 64 99921-9172',
@@ -27,7 +31,7 @@ const ALLOWED_NUMBERS = [
   '+55 62 8187-7123'
 ];
 
-// Armazenamento em memória para tokens dos usuários (para produção, utilize um BD)
+// Armazenamento em memória para tokens dos usuários (para produção, use um banco de dados)
 const userTokens = {};
 
 // Armazena os agendamentos pendentes (fluxo de confirmação)
@@ -41,13 +45,13 @@ function removeAccents(str) {
 }
 
 /**
- * Verifica se o texto recebido contém palavras-chave que indiquem um comando de lembrete.
- * A função agora utiliza uma lista de palavras-chave para tornar a verificação mais robusta.
+ * (Opcional) Função auxiliar para detectar comandos de lembrete usando palavras-chave.
+ * Aqui a lógica não é a principal, pois o objetivo é delegar a interpretação ao Chatvolt.
  */
-function isReminderCommand(text) {
+function isReminderCommandFallback(text) {
   if (!text) return false;
   const normalizedText = removeAccents(text.toLowerCase());
-  const keywords = ['lembre', 'lembrete', 'lembrar', 'agendar', 'programar', 'marcar', 'compromisso'];
+  const keywords = ['lembre', 'lembrete', 'lembrar', 'agendar', 'programar', 'marcar', 'compromisso', 'lembre-me'];
   return keywords.some(keyword => normalizedText.includes(keyword));
 }
 
@@ -62,6 +66,37 @@ function createOAuth2Client() {
   );
 }
 
+/**
+ * Função para consultar o agente do Chatvolt via endpoint /agents/{id}/query.
+ */
+async function queryChatvoltAgent(query, sender) {
+  if (!CHATVOLT_AGENT_ID || !CHATVOLT_AUTH_TOKEN) {
+    console.error("CHATVOLT_AGENT_ID ou CHATVOLT_AUTH_TOKEN não estão definidos.");
+    return null;
+  }
+  const url = `https://api.chatvolt.ai/agents/${CHATVOLT_AGENT_ID}/query`;
+  const payload = {
+    query: query,
+    contact: {
+      phoneNumber: sender
+    },
+    temperature: 0.7,
+    modelName: "gpt_4o_mini"
+  };
+  try {
+    const response = await axios.post(url, payload, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${CHATVOLT_AUTH_TOKEN}`
+      }
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Erro ao consultar o agente Chatvolt:", error.response ? error.response.data : error);
+    return null;
+  }
+}
+
 // Rota raiz para confirmar que o serviço está ativo
 app.get('/', (req, res) => {
   res.send('Jotinha Bot is running');
@@ -74,7 +109,6 @@ app.get('/ping', (req, res) => {
 
 /**
  * Endpoint de callback do OAuth2 do Google.
- * Recebe "code" e "state" (onde state contém o número do usuário).
  */
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code;
@@ -97,7 +131,6 @@ app.get('/auth/google/callback', async (req, res) => {
 
 /**
  * Endpoint para iniciar o fluxo OAuth2 do Google.
- * Exemplo: /auth/google?phone=+5511999999999
  */
 app.get('/auth/google', (req, res) => {
   const phone = req.query.phone;
@@ -139,57 +172,49 @@ app.post('/webhook', async (req, res) => {
     }
 
     let processedText = message.text;
-    const isAudio = message.type === 'audio';
-    if (isAudio) {
+    if (message.type === 'audio') {
       processedText = await convertAudioToText(message.mediaUrl);
     }
     
-    // Logs para depuração
+    // Log para depuração
     console.log(`Processed text from ${sender}: ${processedText}`);
-    console.log(`isReminderCommand = ${isReminderCommand(processedText)}`);
 
-    // Se há um agendamento pendente para este remetente, trata a confirmação.
-    if (pendingScheduling[sender]) {
-      if (processedText.trim().toLowerCase() === 'sim') {
-        const schedulingDetails = pendingScheduling[sender];
-        delete pendingScheduling[sender];
-        if (!userTokens[sender]) {
-          const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
-          await sendMessage(sender, `Você precisa conectar sua conta do Google Agenda. Por favor, clique neste link para conectar: ${authLink}`);
-          return res.status(200).send('Solicitação de conexão enviada.');
-        } else {
-          const oauth2Client = createOAuth2Client();
-          oauth2Client.setCredentials(userTokens[sender]);
-          await addEventToGoogleCalendar(oauth2Client, schedulingDetails);
-          await addEventToSheet(oauth2Client, sender, schedulingDetails);
-          await sendMessage(sender, `Evento "${schedulingDetails.title}" agendado para ${schedulingDetails.date} às ${schedulingDetails.time}.`);
-          return res.status(200).send('OK');
-        }
-      } else {
-        delete pendingScheduling[sender];
-        await sendMessage(sender, 'Agendamento cancelado.');
-        return res.status(200).send('OK');
-      }
+    // Consulta o Chatvolt para interpretar o comando
+    const agentResponse = await queryChatvoltAgent(processedText, sender);
+    console.log("Resposta do agente Chatvolt:", agentResponse);
+
+    if (!agentResponse || !agentResponse.answer) {
+      // Se não obtiver resposta, caia no fluxo de suporte padrão.
+      const responseText = await processSupportQuery(processedText);
+      await sendMessage(sender, responseText);
+      return res.status(200).send('OK');
     }
 
-    // Se a mensagem é identificada como um comando de lembrete...
-    if (isReminderCommand(processedText)) {
+    // Tenta interpretar a resposta como JSON estruturado.
+    let parsedAnswer = null;
+    try {
+      parsedAnswer = JSON.parse(agentResponse.answer);
+    } catch (e) {
+      console.log("Resposta do Chatvolt não está estruturada em JSON, tratando como resposta de suporte.");
+    }
+
+    if (parsedAnswer && parsedAnswer.isReminder) {
+      // Se o agente identificou o comando como um lembrete.
       if (!userTokens[sender]) {
         const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
-        await sendMessage(sender, `Você precisa conectar sua conta do Google Agenda para gerenciar lembretes. Por favor, clique neste link para conectar: ${authLink}`);
+        await sendMessage(sender, `Você precisa conectar sua conta do Google Agenda para gerenciar lembretes. Por favor, clique neste link: ${authLink}`);
         return res.status(200).send('Solicitação de conexão enviada.');
       }
-      const schedulingDetails = await processSchedulingRequest(processedText);
-      pendingScheduling[sender] = schedulingDetails;
+      // Armazena o lembrete pendente e solicita confirmação.
+      pendingScheduling[sender] = parsedAnswer;
       await sendMessage(
         sender,
-        `Você deseja agendar o evento "${schedulingDetails.title}" para ${schedulingDetails.date} às ${schedulingDetails.time} no seu Google Agenda? Responda SIM para confirmar ou qualquer outra resposta para cancelar.`
+        `Você deseja agendar o evento "${parsedAnswer.title}" para ${parsedAnswer.date} às ${parsedAnswer.time} no seu Google Agenda? Responda SIM para confirmar ou qualquer outra resposta para cancelar.`
       );
       return res.status(200).send('Confirmação solicitada.');
     } else {
-      // Se não for comando de lembrete, utiliza o fluxo de suporte.
-      const responseText = await processSupportQuery(processedText);
-      await sendMessage(sender, responseText);
+      // Se a resposta do agente não for estruturada como lembrete, assume-se que é suporte.
+      await sendMessage(sender, agentResponse.answer);
       return res.status(200).send('OK');
     }
   } catch (error) {
@@ -202,16 +227,26 @@ app.post('/webhook', async (req, res) => {
  * Função placeholder para converter áudio em texto.
  */
 async function convertAudioToText(mediaUrl) {
+  // Aqui você pode integrar com uma API de Speech-to-Text.
   return 'Texto convertido do áudio';
 }
 
 /**
  * Função placeholder para processar o comando de agendamento.
- * Ajuste esta função para extrair os detalhes reais do lembrete.
+ * Idealmente, você pode integrar com o ChatGPT para extrair os dados do lembrete.
+ * Exemplo de resposta esperada:
+ * {
+ *   "isReminder": true,
+ *   "title": "Comprar Cimento",
+ *   "date": "2025-02-13",
+ *   "time": "14:00",
+ *   "notes": "Lembrete para comprar cimento"
+ * }
  */
 async function processSchedulingRequest(text) {
-  // Exemplo estático; você pode integrar com NLP ou ChatGPT para extrair os dados.
+  // Exemplo estático – no fluxo atual, esse método pode não ser chamado se o Chatvolt já retornar a estrutura.
   return {
+    isReminder: true,
     title: 'Evento Exemplo',
     date: '2024-05-04',
     time: '13:30',
