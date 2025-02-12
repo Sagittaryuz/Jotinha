@@ -20,39 +20,35 @@ const GOOGLE_REDIRECT_URI =
   process.env.GOOGLE_REDIRECT_URI ||
   'https://jotinha-production.up.railway.app/auth/google/callback';
 
-// Números autorizados para agendamento (opcional; remova se quiser permitir para todos)
+// (Opcional) Lista de números autorizados para agendamento – ajuste ou remova se desejar permitir para todos
 const ALLOWED_NUMBERS = [
   '+55 64 99921-9172',
   '+55 64 9981-411',
   '+55 62 8187-7123'
 ];
 
-// Armazenamento em memória para tokens dos usuários (para produção, use um banco de dados)
+// Armazenamento em memória para tokens dos usuários (para produção, utilize um BD)
 const userTokens = {};
 
 // Armazena os agendamentos pendentes (fluxo de confirmação)
 const pendingScheduling = {};
 
 /**
- * Remove acentos do texto para facilitar a comparação
+ * Remove acentos do texto para facilitar a comparação.
  */
 function removeAccents(str) {
   return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 }
 
 /**
- * Função auxiliar para identificar se o texto parece ser um comando de lembrete.
- * Verifica palavras-chave como "lembre", "lembrete", "lembrar", "agendar", "programar" e "marcar".
+ * Verifica se o texto recebido contém palavras-chave que indiquem um comando de lembrete.
+ * A função agora utiliza uma lista de palavras-chave para tornar a verificação mais robusta.
  */
 function isReminderCommand(text) {
   if (!text) return false;
-  const lower = removeAccents(text.toLowerCase());
-  return lower.includes('lembre') ||
-         lower.includes('lembrete') ||
-         lower.includes('lembrar') ||
-         lower.includes('agendar') ||
-         lower.includes('programar') ||
-         lower.includes('marcar');
+  const normalizedText = removeAccents(text.toLowerCase());
+  const keywords = ['lembre', 'lembrete', 'lembrar', 'agendar', 'programar', 'marcar', 'compromisso'];
+  return keywords.some(keyword => normalizedText.includes(keyword));
 }
 
 /**
@@ -78,7 +74,7 @@ app.get('/ping', (req, res) => {
 
 /**
  * Endpoint de callback do OAuth2 do Google.
- * Recebe "code" e "state" (que contém o número do usuário).
+ * Recebe "code" e "state" (onde state contém o número do usuário).
  */
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code;
@@ -147,12 +143,12 @@ app.post('/webhook', async (req, res) => {
     if (isAudio) {
       processedText = await convertAudioToText(message.mediaUrl);
     }
-
-    // Log para depuração: texto processado e verificação do comando
+    
+    // Logs para depuração
     console.log(`Processed text from ${sender}: ${processedText}`);
     console.log(`isReminderCommand = ${isReminderCommand(processedText)}`);
 
-    // Se há um agendamento pendente para este remetente, trate a resposta de confirmação
+    // Se há um agendamento pendente para este remetente, trata a confirmação.
     if (pendingScheduling[sender]) {
       if (processedText.trim().toLowerCase() === 'sim') {
         const schedulingDetails = pendingScheduling[sender];
@@ -176,7 +172,7 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // Se a mensagem é identificada como um comando de lembrete
+    // Se a mensagem é identificada como um comando de lembrete...
     if (isReminderCommand(processedText)) {
       if (!userTokens[sender]) {
         const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
@@ -191,7 +187,7 @@ app.post('/webhook', async (req, res) => {
       );
       return res.status(200).send('Confirmação solicitada.');
     } else {
-      // Fluxo de suporte caso não seja um comando de lembrete
+      // Se não for comando de lembrete, utiliza o fluxo de suporte.
       const responseText = await processSupportQuery(processedText);
       await sendMessage(sender, responseText);
       return res.status(200).send('OK');
@@ -211,10 +207,10 @@ async function convertAudioToText(mediaUrl) {
 
 /**
  * Função placeholder para processar o comando de agendamento.
- * Substitua com a lógica real de extração dos dados do lembrete.
+ * Ajuste esta função para extrair os detalhes reais do lembrete.
  */
 async function processSchedulingRequest(text) {
-  // Exemplo estático; ajuste para extrair os dados do comando
+  // Exemplo estático; você pode integrar com NLP ou ChatGPT para extrair os dados.
   return {
     title: 'Evento Exemplo',
     date: '2024-05-04',
@@ -227,7 +223,7 @@ async function processSchedulingRequest(text) {
  * Função placeholder para processar consultas de suporte.
  */
 async function processSupportQuery(text) {
-  return 'Esta é uma resposta de suporte utilizando a persona Jotinha.';
+  return 'Desculpe, mas não consigo criar lembretes ou agendar compromissos. Posso ajudar com informações sobre produtos ou suporte técnico. Como posso te ajudar hoje?';
 }
 
 /**
