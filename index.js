@@ -9,32 +9,44 @@ app.use(bodyParser.json());
 
 // Configurações obtidas via variáveis de ambiente (Railway)
 const PORT = process.env.PORT || 3000;
-const ZAPI_URL = process.env.ZAPI_URL || 'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
+const ZAPI_URL =
+  process.env.ZAPI_URL ||
+  'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
 const ZAPI_TOKEN = process.env.ZAPI_TOKEN || '1D8DE54DAF4B72BC51CA8548';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID; // Definido no Railway
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET; // Definido no Railway
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://jotinha-production.up.railway.app/auth/google/callback';
+const GOOGLE_REDIRECT_URI =
+  process.env.GOOGLE_REDIRECT_URI ||
+  'https://jotinha-production.up.railway.app/auth/google/callback';
 
-// Números autorizados para agendamento (pode ser opcional)
+// Números autorizados para agendamento (opcional; remova se quiser permitir para todos)
 const ALLOWED_NUMBERS = [
   '+55 64 99921-9172',
   '+55 64 9981-411',
   '+55 62 8187-7123'
 ];
 
-// Armazenamento em memória para tokens dos usuários (para produção, utilize um BD)
+// Armazenamento em memória para tokens dos usuários (para produção, use um banco de dados)
 const userTokens = {};
 
 // Armazena os agendamentos pendentes (fluxo de confirmação)
 const pendingScheduling = {};
 
 /**
+ * Remove acentos do texto para facilitar a comparação
+ */
+function removeAccents(str) {
+  return str.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+}
+
+/**
  * Função auxiliar para identificar se o texto parece ser um comando de lembrete.
+ * Verifica palavras-chave como "lembre", "lembrete", "lembrar", "agendar", "programar" e "marcar".
  */
 function isReminderCommand(text) {
   if (!text) return false;
-  const lower = text.toLowerCase();
+  const lower = removeAccents(text.toLowerCase());
   return lower.includes('lembre') ||
          lower.includes('lembrete') ||
          lower.includes('lembrar') ||
@@ -59,13 +71,14 @@ app.get('/', (req, res) => {
   res.send('Jotinha Bot is running');
 });
 
-// Rota de health check (ping) para auxiliar no monitoramento do Railway
+// Rota de health check (ping)
 app.get('/ping', (req, res) => {
   res.send('pong');
 });
 
 /**
  * Endpoint de callback do OAuth2 do Google.
+ * Recebe "code" e "state" (que contém o número do usuário).
  */
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code;
@@ -88,6 +101,7 @@ app.get('/auth/google/callback', async (req, res) => {
 
 /**
  * Endpoint para iniciar o fluxo OAuth2 do Google.
+ * Exemplo: /auth/google?phone=+5511999999999
  */
 app.get('/auth/google', (req, res) => {
   const phone = req.query.phone;
@@ -114,14 +128,14 @@ app.post('/webhook', async (req, res) => {
     const message = req.body;
     console.log('Mensagem recebida:', message);
 
-    // Filtra apenas os tipos que queremos processar (text ou audio)
+    // Processa apenas mensagens do tipo "text" ou "audio"
     const validTypes = ['text', 'audio'];
     if (!validTypes.includes(message.type)) {
       console.log(`Ignorando mensagem do tipo ${message.type}`);
       return res.status(200).send('OK');
     }
 
-    // Utiliza sender ou phone, conforme disponível
+    // Usa "sender" ou "phone" para identificar o remetente
     const sender = message.sender || message.phone;
     if (!sender) {
       console.warn("Mensagem sem remetente:", message);
@@ -133,8 +147,12 @@ app.post('/webhook', async (req, res) => {
     if (isAudio) {
       processedText = await convertAudioToText(message.mediaUrl);
     }
-    
-    // Se há um agendamento pendente para este remetente, trate a confirmação.
+
+    // Log para depuração: texto processado e verificação do comando
+    console.log(`Processed text from ${sender}: ${processedText}`);
+    console.log(`isReminderCommand = ${isReminderCommand(processedText)}`);
+
+    // Se há um agendamento pendente para este remetente, trate a resposta de confirmação
     if (pendingScheduling[sender]) {
       if (processedText.trim().toLowerCase() === 'sim') {
         const schedulingDetails = pendingScheduling[sender];
@@ -158,7 +176,7 @@ app.post('/webhook', async (req, res) => {
       }
     }
 
-    // Se a mensagem é identificada como um comando de lembrete...
+    // Se a mensagem é identificada como um comando de lembrete
     if (isReminderCommand(processedText)) {
       if (!userTokens[sender]) {
         const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
@@ -173,6 +191,7 @@ app.post('/webhook', async (req, res) => {
       );
       return res.status(200).send('Confirmação solicitada.');
     } else {
+      // Fluxo de suporte caso não seja um comando de lembrete
       const responseText = await processSupportQuery(processedText);
       await sendMessage(sender, responseText);
       return res.status(200).send('OK');
@@ -192,8 +211,10 @@ async function convertAudioToText(mediaUrl) {
 
 /**
  * Função placeholder para processar o comando de agendamento.
+ * Substitua com a lógica real de extração dos dados do lembrete.
  */
 async function processSchedulingRequest(text) {
+  // Exemplo estático; ajuste para extrair os dados do comando
   return {
     title: 'Evento Exemplo',
     date: '2024-05-04',
@@ -265,7 +286,6 @@ async function addEventToSheet(oauth2Client, sender, eventDetails) {
  * Envia uma mensagem ao usuário via Z-API.
  */
 async function sendMessage(recipient, text) {
-  // Se o texto estiver nulo ou vazio, não tenta enviar.
   if (!text) {
     console.error(`Texto da mensagem é nulo ou vazio para ${recipient}`);
     return;
@@ -295,7 +315,7 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
 
-// Handlers para sinais de encerramento, para logar e encerrar graciosamente
+// Handlers para sinais de encerramento (SIGTERM e SIGINT)
 process.on('SIGTERM', () => {
   console.log('SIGTERM recebido. Encerrando o servidor.');
   process.exit(0);
