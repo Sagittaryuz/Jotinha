@@ -46,6 +46,7 @@ function removeAccents(str) {
 
 /**
  * (Fallback) Verifica se o texto recebido contém palavras-chave que indiquem um comando de lembrete.
+ * Essa função é usada apenas se a interpretação via Chatvolt não retornar a estrutura desejada.
  */
 function isReminderCommandFallback(text) {
   if (!text) return false;
@@ -108,6 +109,7 @@ app.get('/ping', (req, res) => {
 
 /**
  * Endpoint de callback do OAuth2 do Google.
+ * Recebe "code" e "state" (onde state contém o número do usuário).
  */
 app.get('/auth/google/callback', async (req, res) => {
   const code = req.query.code;
@@ -130,6 +132,7 @@ app.get('/auth/google/callback', async (req, res) => {
 
 /**
  * Endpoint para iniciar o fluxo OAuth2 do Google.
+ * Exemplo: /auth/google?phone=+5511999999999
  */
 app.get('/auth/google', (req, res) => {
   const phone = req.query.phone;
@@ -205,14 +208,16 @@ app.post('/webhook', async (req, res) => {
     const agentResponse = await queryChatvoltAgent(processedText, sender);
     console.log("Resposta do agente Chatvolt:", agentResponse);
 
-    // Tenta interpretar a resposta como objeto JSON
     let parsedAnswer = null;
     if (agentResponse && agentResponse.answer) {
+      // Se a resposta já for um objeto, use-a; se for string, tente fazer o parse.
       if (typeof agentResponse.answer === 'object') {
         parsedAnswer = agentResponse.answer;
-      } else if (typeof agentResponse.answer === 'string' &&
-                 agentResponse.answer.trim().startsWith('{') &&
-                 agentResponse.answer.trim().endsWith('}')) {
+      } else if (
+        typeof agentResponse.answer === 'string' &&
+        agentResponse.answer.trim().startsWith('{') &&
+        agentResponse.answer.trim().endsWith('}')
+      ) {
         try {
           parsedAnswer = JSON.parse(agentResponse.answer);
         } catch (e) {
@@ -229,13 +234,14 @@ app.post('/webhook', async (req, res) => {
         return res.status(200).send('Solicitação de conexão enviada.');
       }
       pendingScheduling[sender] = parsedAnswer;
+      // Em vez de enviar o JSON retornado, enviamos uma mensagem de confirmação.
       await sendMessage(
         sender,
         `Você deseja agendar o evento "${parsedAnswer.title}" para ${parsedAnswer.date} às ${parsedAnswer.time} no seu Google Agenda? Responda SIM para confirmar ou qualquer outra resposta para cancelar.`
       );
       return res.status(200).send('Confirmação solicitada.');
     } else {
-      // Se a resposta do agente não indicar um lembrete, usa o fallback para detectar comando de lembrete.
+      // Se a resposta do agente não indicar um lembrete, utiliza o fallback para detectar comando de lembrete.
       if (isReminderCommandFallback(processedText)) {
         if (!userTokens[sender]) {
           const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
