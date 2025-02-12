@@ -8,15 +8,20 @@ const app = express();
 app.use(bodyParser.json());
 
 // Configurações obtidas via variáveis de ambiente (Railway)
-const PORT = process.env.PORT || 8080;
-const ZAPI_URL = process.env.ZAPI_URL || 'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
+const PORT = process.env.PORT || 3000;
+const ZAPI_URL =
+  process.env.ZAPI_URL ||
+  'https://api.z-api.io/instances/3DCABA243C00F0C39C064647D8C73AB0/token/1D8DE54DAF4B72BC51CA8548/send-text';
 const ZAPI_TOKEN = process.env.ZAPI_TOKEN || '1D8DE54DAF4B72BC51CA8548';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID; // Definido no Railway
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET; // Definido no Railway
-const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://jotinha-production.up.railway.app/auth/google/callback';
+const GOOGLE_REDIRECT_URI =
+  process.env.GOOGLE_REDIRECT_URI ||
+  'https://jotinha-production.up.railway.app/auth/google/callback';
 
-// Números autorizados para agendamento de lembretes
+// Números autorizados para agendamento (opcional, se desejar restringir a determinados contatos)
+// Caso queira que todos os contatos possam agendar lembretes, você pode remover essa verificação.
 const ALLOWED_NUMBERS = [
   '+55 64 99921-9172',
   '+55 64 9981-411',
@@ -25,6 +30,19 @@ const ALLOWED_NUMBERS = [
 
 // Armazenamento em memória para tokens dos usuários (para produção, utilize um BD)
 const userTokens = {};
+
+// Armazena os agendamentos pendentes (fluxo de confirmação)
+const pendingScheduling = {};
+
+/**
+ * Função auxiliar para identificar se o texto parece ser um comando de lembrete.
+ * Aqui, procuramos por palavras-chave como "lembre", "lembrete" ou "lembrar".
+ */
+function isReminderCommand(text) {
+  if (!text) return false;
+  const lower = text.toLowerCase();
+  return lower.includes('lembre') || lower.includes('lembrete') || lower.includes('lembrar');
+}
 
 /**
  * Cria um cliente OAuth2 para acessar os serviços do Google.
@@ -93,50 +111,76 @@ app.get('/auth/google', (req, res) => {
 
 /**
  * Webhook que recebe mensagens do Z-API/Chatvolt.
- * Processa mensagens de texto ou áudio e direciona para agendamento ou suporte.
+ * Se a mensagem parecer ser um comando de lembrete (utilizando isReminderCommand),
+ * o fluxo de agendamento é iniciado.
+ * Caso contrário, a mensagem é processada como uma consulta de suporte.
  */
 app.post('/webhook', async (req, res) => {
   try {
     const message = req.body;
     console.log('Mensagem recebida:', message);
 
-    // Ajuste conforme a estrutura do payload recebido
-    const sender = message.sender;
+    // Utiliza sender ou phone, conforme disponível
+    const sender = message.sender || message.phone;
+    if (!sender) {
+      console.warn("Mensagem sem remetente:", message);
+      return res.status(200).send('OK');
+    }
+
     let processedText = message.text;
     const isAudio = message.type === 'audio';
-
     if (isAudio) {
       processedText = await convertAudioToText(message.mediaUrl);
     }
 
-    // Se o remetente estiver autorizado para agendamento
-    if (ALLOWED_NUMBERS.includes(sender)) {
-      // Verifica se o usuário já conectou sua conta Google
-      if (!userTokens[sender]) {
-        const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
-        await sendMessage(
-          sender,
-          `Você precisa conectar sua conta do Google Agenda. Por favor, clique neste link para conectar: ${authLink}`
-        );
-        return res.status(200).send('Solicitação de conexão enviada.');
+    // Se existe um agendamento pendente para este remetente, trata a resposta de confirmação.
+    if (pendingScheduling[sender]) {
+      if (processedText.trim().toLowerCase() === 'sim') {
+        const schedulingDetails = pendingScheduling[sender];
+        delete pendingScheduling[sender];
+        if (!userTokens[sender]) {
+          const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
+          await sendMessage(sender, `Você precisa conectar sua conta do Google Agenda. Por favor, clique neste link para conectar: ${authLink}`);
+          return res.status(200).send('Solicitação de conexão enviada.');
+        } else {
+          const oauth2Client = createOAuth2Client();
+          oauth2Client.setCredentials(userTokens[sender]);
+          await addEventToGoogleCalendar(oauth2Client, schedulingDetails);
+          await addEventToSheet(oauth2Client, sender, schedulingDetails);
+          await sendMessage(sender, `Evento "${schedulingDetails.title}" agendado para ${schedulingDetails.date} às ${schedulingDetails.time}.`);
+          return res.status(200).send('OK');
+        }
       } else {
-        const schedulingDetails = await processSchedulingRequest(processedText);
-        const oauth2Client = createOAuth2Client();
-        oauth2Client.setCredentials(userTokens[sender]);
-        await addEventToGoogleCalendar(oauth2Client, schedulingDetails);
-        await addEventToSheet(oauth2Client, sender, schedulingDetails);
-        await sendMessage(
-          sender,
-          `Evento "${schedulingDetails.title}" agendado para ${schedulingDetails.date} às ${schedulingDetails.time}.`
-        );
+        // Se a resposta não for "sim", cancela o agendamento pendente
+        delete pendingScheduling[sender];
+        await sendMessage(sender, 'Agendamento cancelado.');
+        return res.status(200).send('OK');
       }
-    } else {
-      // Fluxo de suporte com a persona Jotinha
-      const responseText = await processSupportQuery(processedText);
-      await sendMessage(sender, responseText);
     }
 
-    res.status(200).send('OK');
+    // Se a mensagem for identificada como um comando de lembrete...
+    if (isReminderCommand(processedText)) {
+      // Se o usuário não estiver vinculado ao Google Agenda, envia o link de conexão.
+      if (!userTokens[sender]) {
+        const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
+        await sendMessage(sender, `Você precisa conectar sua conta do Google Agenda para gerenciar lembretes. Por favor, clique neste link para conectar: ${authLink}`);
+        return res.status(200).send('Solicitação de conexão enviada.');
+      }
+      // Caso contrário, extrai os detalhes do lembrete e solicita confirmação.
+      const schedulingDetails = await processSchedulingRequest(processedText);
+      // Armazena o agendamento pendente para esse contato.
+      pendingScheduling[sender] = schedulingDetails;
+      await sendMessage(
+        sender,
+        `Você deseja agendar o evento "${schedulingDetails.title}" para ${schedulingDetails.date} às ${schedulingDetails.time} no seu Google Agenda? Responda SIM para confirmar ou qualquer outra resposta para cancelar.`
+      );
+      return res.status(200).send('Confirmação solicitada.');
+    } else {
+      // Se a mensagem não for de agendamento, processa como suporte com a persona Jotinha.
+      const responseText = await processSupportQuery(processedText);
+      await sendMessage(sender, responseText);
+      return res.status(200).send('OK');
+    }
   } catch (error) {
     console.error('Erro ao processar a mensagem:', error);
     res.status(500).send('Erro interno do servidor.');
@@ -148,15 +192,15 @@ app.post('/webhook', async (req, res) => {
  * Integre com uma API de Speech-to-Text conforme necessário.
  */
 async function convertAudioToText(mediaUrl) {
-  // Implementação de conversão de áudio para texto
   return 'Texto convertido do áudio';
 }
 
 /**
  * Função placeholder para processar o comando de agendamento.
- * Integre com o ChatGPT-4 Mini para extrair os detalhes do evento.
+ * Aqui você pode integrar com o ChatGPT-4 Mini ou outra lógica para extrair os detalhes do evento.
  */
 async function processSchedulingRequest(text) {
+  // Exemplo estático; substitua com a lógica real de extração de dados
   return {
     title: 'Evento Exemplo',
     date: '2024-05-04',
