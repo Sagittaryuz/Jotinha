@@ -28,7 +28,7 @@ const CHATVOLT_AUTH_TOKEN = process.env.CHATVOLT_AUTH_TOKEN; // Seu token de aut
 const ALLOWED_NUMBERS = [
   '+55 64 99921-9172',
   '+55 64 99981-4117',
-  '+55 62 8187-7123'
+  '+55 62 98187-7123'
 ];
 
 // Armazenamento em memória para tokens dos usuários (para produção, utilize um BD)
