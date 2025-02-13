@@ -1,6 +1,21 @@
-if (parsedAnswer && parsedAnswer.isReminder) {
-    const friendlyResponse = `Claro! Vou te lembrar de ${parsedAnswer.title} amanhã às ${parsedAnswer.time}. Posso adicionar isso à sua agenda? Responda com um "sim" se estiver tudo certo! 😊`;
-    await sendMessage(sender, friendlyResponse);
-    // ... resto do código para lidar com a confirmação
-}
-// Conteúdo completo do index.js (já atualizado e revisado)
+const express = require('express');
+const bodyParser = require('body-parser');
+const { queryChatvoltAgent } = require('./chatvolt');
+const { addEventToGoogleCalendar, addEventToSheet } = require('./google-calendar');
+const { sendMessage } = require('./zapi');
+
+const app = express();
+app.use(bodyParser.json());
+
+// Configurações e rotas principais
+
+app.post('/webhook', async (req, res) => {
+    // Lógica principal do webhook, utilizando as funções importadas
+});
+
+// Outras rotas e configurações
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
+});
