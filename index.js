@@ -11,7 +11,9 @@ app.post('/webhook', async (req, res) => {
 
         let parsedAnswer;
         try {
-            parsedAnswer = JSON.parse(agentResponse.answer);
+            parsedAnswer = typeof agentResponse.answer === 'string' 
+                ? JSON.parse(agentResponse.answer) 
+                : agentResponse.answer;
         } catch (e) {
             parsedAnswer = agentResponse.answer;
         }
