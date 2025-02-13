@@ -1,3 +1,15 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const { queryChatvoltAgent } = require('./chatvolt');
+const { sendMessage } = require('./zapi');
+
+const app = express();
+app.use(bodyParser.json());
+
+// Suas outras importações e configurações aqui
+
+const pendingScheduling = {};
+
 app.post('/webhook', async (req, res) => {
     try {
         const message = req.body;
@@ -33,4 +45,9 @@ app.post('/webhook', async (req, res) => {
         console.error('Erro ao processar a mensagem:', error);
         res.status(500).send('Erro interno do servidor.');
     }
+});
+
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+    console.log(`Servidor rodando na porta ${PORT}`);
 });
