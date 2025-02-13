@@ -8,14 +8,17 @@ const { sendMessage } = require('./zapi');
 const app = express();
 app.use(bodyParser.json());
 
+// Configurações do servidor
 const PORT = process.env.PORT || 3000;
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://jotinha-production.up.railway.app/auth/google/callback';
 
+// Armazenamento temporário em memória
 const userTokens = {};
 const pendingScheduling = {};
 
+// Função para criar o cliente OAuth2
 function createOAuth2Client() {
   return new google.auth.OAuth2(
     GOOGLE_CLIENT_ID,
@@ -24,14 +27,17 @@ function createOAuth2Client() {
   );
 }
 
+// Rota inicial (health check)
 app.get('/', (req, res) => {
   res.send('Jotinha Bot is running');
 });
 
+// Rota de ping (para testes rápidos)
 app.get('/ping', (req, res) => {
   res.send('pong');
 });
 
+// Rota para iniciar a autenticação com o Google
 app.get('/auth/google', (req, res) => {
   const phone = req.query.phone;
   if (!phone) {
@@ -49,6 +55,7 @@ app.get('/auth/google', (req, res) => {
   res.redirect(authUrl);
 });
 
+// Rota de callback do Google OAuth2
 app.get('/auth/google/callback', async (req, res) => {
   const { code, state } = req.query;
   const phone = state;
@@ -67,6 +74,7 @@ app.get('/auth/google/callback', async (req, res) => {
   }
 });
 
+// Webhook para processar mensagens recebidas
 app.post('/webhook', async (req, res) => {
   try {
     const message = req.body;
@@ -75,18 +83,20 @@ app.post('/webhook', async (req, res) => {
 
     console.log(`Texto processado de ${sender}: ${processedText}`);
 
+    // Consulta o ChatVolt para interpretar a mensagem
     const agentResponse = await queryChatvoltAgent(processedText, sender);
     console.log("Resposta do agente Chatvolt:", agentResponse);
 
     let parsedAnswer;
     try {
-      parsedAnswer = typeof agentResponse.answer === 'string' 
-        ? JSON.parse(agentResponse.answer) 
+      parsedAnswer = typeof agentResponse.answer === 'string'
+        ? JSON.parse(agentResponse.answer)
         : agentResponse.answer;
     } catch (e) {
       parsedAnswer = agentResponse.answer;
     }
 
+    // Verifica se é um lembrete
     if (parsedAnswer && parsedAnswer.isReminder) {
       if (!userTokens[sender]) {
         const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
@@ -97,6 +107,7 @@ app.post('/webhook', async (req, res) => {
         pendingScheduling[sender] = parsedAnswer;
       }
     } else if (processedText.toLowerCase() === 'sim' && pendingScheduling[sender]) {
+      // Confirmação do lembrete
       const oauth2Client = createOAuth2Client();
       oauth2Client.setCredentials(userTokens[sender]);
       try {
@@ -109,6 +120,7 @@ app.post('/webhook', async (req, res) => {
       }
       delete pendingScheduling[sender];
     } else {
+      // Resposta padrão para outras mensagens
       await sendMessage(sender, parsedAnswer);
     }
 
@@ -119,10 +131,12 @@ app.post('/webhook', async (req, res) => {
   }
 });
 
+// Inicia o servidor na porta configurada
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Servidor rodando na porta ${PORT}`);
 });
 
+// Tratamento de sinais para encerramento seguro
 process.on('SIGTERM', () => {
   console.log('SIGTERM recebido. Encerrando o servidor.');
   process.exit(0);
