@@ -1,15 +1,3 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const { queryChatvoltAgent } = require('./chatvolt');
-const { sendMessage } = require('./zapi');
-
-const app = express();
-app.use(bodyParser.json());
-
-// Suas outras importações e configurações aqui
-
-const pendingScheduling = {};
-
 app.post('/webhook', async (req, res) => {
     try {
         const message = req.body;
@@ -21,22 +9,17 @@ app.post('/webhook', async (req, res) => {
         const agentResponse = await queryChatvoltAgent(processedText, sender);
         console.log("Resposta do agente Chatvolt:", agentResponse);
 
-        let parsedAnswer;
-        try {
-            parsedAnswer = typeof agentResponse.answer === 'string' 
-                ? JSON.parse(agentResponse.answer) 
-                : agentResponse.answer;
-        } catch (e) {
-            parsedAnswer = agentResponse.answer;
-        }
-
-        if (parsedAnswer && parsedAnswer.isReminder) {
-            const friendlyResponse = `Claro! Vou te lembrar de ${parsedAnswer.title} no dia ${parsedAnswer.date} às ${parsedAnswer.time}. Posso adicionar isso à sua agenda? Responda com um "sim" se estiver tudo certo! 😊`;
-            await sendMessage(sender, friendlyResponse);
-            // Armazene o parsedAnswer para uso posterior se o usuário confirmar
-            pendingScheduling[sender] = parsedAnswer;
+        if (agentResponse.isReminder) {
+            if (!userTokens[sender]) {
+                const authLink = `https://jotinha-production.up.railway.app/auth/google?phone=${encodeURIComponent(sender)}`;
+                const response = `Parece que você quer agendar algo, mas primeiro preciso me conectar ao seu Google Agenda. Por favor, clique neste link para se conectar: ${authLink}`;
+                await sendMessage(sender, response);
+            } else {
+                const friendlyResponse = `Claro! Vou te lembrar de ${agentResponse.title} no dia ${agentResponse.date} às ${agentResponse.time}. Posso adicionar isso à sua agenda? Responda com um "sim" se estiver tudo certo! 😊`;
+                await sendMessage(sender, friendlyResponse);
+                pendingScheduling[sender] = agentResponse;
+            }
         } else {
-            // Se não for um lembrete, envie a resposta normal do chatbot
             await sendMessage(sender, agentResponse.answer);
         }
 
@@ -45,9 +28,4 @@ app.post('/webhook', async (req, res) => {
         console.error('Erro ao processar a mensagem:', error);
         res.status(500).send('Erro interno do servidor.');
     }
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
 });
